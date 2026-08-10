@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "InstructionsLoaded": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '\"\\(now | strftime(\"%Y-%m-%dT%H:%M:%SZ\")) loaded: \\(.file_path) (reason: \\(.load_reason), type: \\(.memory_type))\"' >> .claude/instructions-loaded.log"
+          }
+        ]
+      }
+    ]
+  }
+}

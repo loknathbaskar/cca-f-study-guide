@@ -1,0 +1,80 @@
+name: Claude Code PR Review
+
+# Triggers on every PR — demonstrates -p (headless/print mode) with
+# --output-format json for automated, parseable output in CI.
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  claude-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need full history for the diff below
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Review PR diff
+        id: review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          PR_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+
+          # --output-format json for structured, parseable output.
+          # --allowedTools restricted to read-only — CI review should never
+          # be able to modify the repo it's reviewing.
+          claude -p "You are a senior reviewer. Analyze these changed files: ${PR_FILES}
+          Look for: potential bugs, security issues, and convention violations.
+          Respond as JSON: {\"findings\": [{\"file\":.., \"severity\":.., \"issue\":..}]}" \
+            --output-format json \
+            --allowedTools "Read,Grep,Glob" \
+            --max-turns 5 \
+            > review.json
+
+          # Exit code convention: 0 = success, 1 = generic error,
+          # 2 = auth error. Don't block the whole PR pipeline on a Claude
+          # failure — fall back to manual review instead.
+          if [ $? -ne 0 ]; then
+            echo "Claude Code review failed — falling back to manual review"
+            exit 0
+          fi
+
+          cat review.json | jq -r '.result' > review-summary.txt
+
+      - name: Post review as PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('review-summary.txt', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Claude Code Review\n\n${summary}`
+            });
+
+      - name: Log cost/usage metrics
+        run: |
+          cat review.json | jq '{
+            cost: .cost_usd,
+            duration_ms: .duration_ms,
+            turns: .num_turns
+          }' >> metrics.jsonl
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: claude-review-metrics
+          path: metrics.jsonl
