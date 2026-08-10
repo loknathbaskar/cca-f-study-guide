@@ -30,14 +30,24 @@ claude -p "List 3 things to check before merging a checkout API change: security
 
 EXIT_CODE=$?
 
-# Exit code convention per docs: 0 success, 1 generic error, 2 auth error.
-# VERIFIED FALSE for auth errors on 2.1.226 — see NOTES.md. Treating any
-# non-zero as "something went wrong, don't assume which," and printing
-# the real stderr instead of trusting a code-to-meaning table.
-if [ $EXIT_CODE -ne 0 ]; then
-  echo "Claude Code exited with code $EXIT_CODE"
-  echo "--- stderr ---"
-  cat review-stderr.log
+# VERIFIED (2.1.226): the exit code alone is NOT a reliable signal for
+# *why* something failed — a bad API key returned exit code 1, not the
+# documented 2, and stderr only carried an unrelated connectors-precedence
+# warning. The real diagnostic is in the JSON body on stdout, written even
+# on failure: `is_error`, `api_error_status` (real HTTP status), and
+# `result` (human-readable message). Check that instead of trusting the
+# exit code to tell you the failure category.
+IS_ERROR=$(jq -r '.is_error // false' review.json 2>/dev/null || echo "unknown")
+
+if [ "$EXIT_CODE" -ne 0 ] || [ "$IS_ERROR" = "true" ]; then
+  echo "Claude Code call failed (exit code: $EXIT_CODE, is_error: $IS_ERROR)"
+  if [ "$IS_ERROR" = "true" ]; then
+    echo "API error status: $(jq -r '.api_error_status // "unknown"' review.json)"
+    echo "Message: $(jq -r '.result // "no result field"' review.json)"
+  else
+    echo "--- stderr ---"
+    cat review-stderr.log
+  fi
   exit 0  # don't propagate failure to a CI pipeline exit — degrade to manual review
 fi
 
