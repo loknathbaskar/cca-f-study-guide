@@ -39,6 +39,7 @@ jobs:
           Look for: potential bugs, security issues, and convention violations.
           Respond as JSON: {\"findings\": [{\"file\":.., \"severity\":.., \"issue\":..}]}" \
             --output-format json \
+            --model claude-sonnet-4-6 \
             --allowedTools "Read,Grep,Glob" \
             --max-turns 5 \
             > review.json
@@ -69,7 +70,7 @@ jobs:
       - name: Log cost/usage metrics
         run: |
           cat review.json | jq '{
-            cost: .cost_usd,
+            cost_usd: .total_cost_usd,
             duration_ms: .duration_ms,
             turns: .num_turns
           }' >> metrics.jsonl

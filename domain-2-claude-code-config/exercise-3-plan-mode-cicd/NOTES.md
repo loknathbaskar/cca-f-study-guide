@@ -75,7 +75,36 @@ chmod +x scripts/ci-review-local.sh
 
 | Issue | Cause | Fix |
 |---|---|---|
-| *(fill in as you test locally and in a real Actions run)* | | |
+| `jq` filter returned `"cost": null` despite the review succeeding | My script used `.cost_usd` — the actual field is `.total_cost_usd`. Documentation examples found via search also used `.cost_usd`, so this is a real, current schema mismatch worth verifying yourself rather than trusting either me or third-party docs blindly. | Changed the filter to `.total_cost_usd` in both `ci-review-local.sh` and the GitHub Actions workflow |
+| No model pinned — defaulted to `claude-opus-5` | `-p` with no `--model` flag uses whatever the CLI's current default is, which is not necessarily Sonnet and can change between versions | Added `--model claude-sonnet-4-6` explicitly to both scripts — CI cost/latency should be deliberate, not whatever the current default happens to be |
+| Bad-key test produced no error-handling output at all — script just stopped silently after the connectors warning | The script had `set -euo pipefail` at the top. `set -e` terminates the script immediately on ANY non-zero exit — including the `claude` call itself — which meant it died right there, before ever reaching the script's own `EXIT_CODE=$?` / error-handling logic below it. The error handling was unreachable dead code. | Removed `-e` from the `set` flags (kept `-u` and `pipefail`). Also added `2> review-stderr.log` to capture and print the real stderr message instead of trusting a hardcoded exit-code-to-meaning table. |
+| Documented exit-code convention (0 success / 1 generic error / 2 auth error) does not match observed behavior | A bad `ANTHROPIC_API_KEY` produced exit code **1**, not the documented **2**. Multiple third-party docs describe 2 as the auth-error code; this run contradicts that on 2.1.226. Possibly version-specific, possibly the convention was never accurate, possibly "invalid-but-present" key behaves differently than "missing" key. Not fully root-caused — flagging as a verified discrepancy rather than guessing further. | Script no longer branches logic on the specific exit code number — treats any non-zero as "something went wrong," prints real stderr, and degrades to manual review either way. Don't build CI logic that depends on a specific auth-error exit code without verifying it on your own version first. |
+
+## Actual JSON schema returned by `--output-format json` (verified, 2.1.226)
+
+Worth keeping this verified list rather than trusting any single doc source
+— confirmed fields from a real run:
+
+```
+is_error, duration_api_ms, num_turns, stop_reason, session_id,
+total_cost_usd, usage: {input_tokens, cache_creation_input_tokens,
+  cache_read_input_tokens, output_tokens, server_tool_use, service_tier,
+  cache_creation, inference_geo, iterations, speed},
+modelUsage: {<model-name>: {inputTokens, outputTokens,
+  cacheReadInputTokens, cacheCreationInputTokens, webSearchRequests,
+  costUSD, contextWindow, maxOutputTokens, canonicalModel, provider}},
+permission_denials, terminal_reason, fast_mode_state,
+fast_mode_disabled_reason, subtype, api_error_status, result,
+ttft_ms, ttft_stream_ms, time_to_request_ms, type, duration_ms, uuid
+```
+
+Notably richer than the `result`/`session_id`/`cost_usd`/`duration_ms` most
+tutorials describe — `modelUsage` breaks cost down per-model (useful if a
+session uses more than one model), `permission_denials` would show any
+tool calls a hook or permission rule blocked (useful for the same kind of
+audit `InstructionsLoaded` provides, but for tool denials specifically),
+and cache token fields matter a lot for real cost accounting since
+`cache_read_input_tokens` is billed differently than fresh input tokens.
 
 ## Follow-up exercises (not yet done)
 - [ ] Add `--resume` to chain a second headless call (e.g. "now suggest a

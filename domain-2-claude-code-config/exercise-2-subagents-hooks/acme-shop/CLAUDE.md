@@ -1,4 +1,3 @@
-# acme-shop (Exercise 2 variant)
+# acme-shop
 
-Minimal project for testing subagents and hooks vs. natural-language rules.
-See NOTES.md for the comparison test procedure.
+Internal service scaffold. Node/Express backend.

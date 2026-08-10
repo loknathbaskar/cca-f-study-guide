@@ -1,3 +1,6 @@
 2026-08-09T23:38:33Z loaded: /Users/loknathbaskar/Projects/Educate/cca-f-study-guide/domain-2-claude-code-config/exercise-1-claude-md-hierarchy/acme-shop/CLAUDE.md (reason: session_start, type: Project)
 2026-08-09T23:40:46Z loaded: /Users/loknathbaskar/Projects/Educate/cca-f-study-guide/domain-2-claude-code-config/exercise-1-claude-md-hierarchy/acme-shop/api/CLAUDE.md (reason: nested_traversal, type: Project)
 2026-08-09T23:40:46Z loaded: /Users/loknathbaskar/Projects/Educate/cca-f-study-guide/domain-2-claude-code-config/exercise-1-claude-md-hierarchy/acme-shop/.claude/rules/api-rules.md (reason: path_glob_match, type: Project)
+2026-08-10T02:52:58Z loaded: /Users/loknathbaskar/Projects/Educate/cca-f-study-guide/domain-2-claude-code-config/exercise-1-claude-md-hierarchy/acme-shop/CLAUDE.md (reason: session_start, type: Project)
+2026-08-10T02:53:58Z loaded: /Users/loknathbaskar/Projects/Educate/cca-f-study-guide/domain-2-claude-code-config/exercise-1-claude-md-hierarchy/acme-shop/api/CLAUDE.md (reason: nested_traversal, type: Project)
+2026-08-10T02:53:58Z loaded: /Users/loknathbaskar/Projects/Educate/cca-f-study-guide/domain-2-claude-code-config/exercise-1-claude-md-hierarchy/acme-shop/.claude/rules/api-rules.md (reason: path_glob_match, type: Project)
