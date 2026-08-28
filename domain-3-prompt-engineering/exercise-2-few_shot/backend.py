@@ -1,0 +1,166 @@
+"""
+backend.py — same real/mock abstraction pattern as Domain 1's exercise, so
+this runs whether or not ANTHROPIC_API_KEY is set. Mock mode here is
+LESS deterministic than Domain 1's on purpose — it simulates realistic
+inconsistency for the vague-prompt demo (step 1), which is the actual
+point being demonstrated.
+"""
+
+import os
+import random
+
+USE_REAL_API = bool(os.environ.get("ANTHROPIC_API_KEY"))
+
+if USE_REAL_API:
+    import anthropic
+    _client = anthropic.Anthropic()
+
+
+def call_claude(system: str, user_message: str, tools: list = None,
+                 tool_choice: dict = None, max_tokens: int = 1024):
+    if USE_REAL_API:
+        kwargs = dict(
+            model="claude-sonnet-4-6",
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": user_message}],
+        )
+        if tools:
+            kwargs["tools"] = tools
+        if tool_choice:
+            kwargs["tool_choice"] = tool_choice
+        return _client.messages.create(**kwargs)
+
+    return _mock_response(system, user_message, tools, tool_choice)
+
+
+class _MockContentBlock:
+    def __init__(self, type_, text=None, name=None, input_=None, id_=None):
+        self.type = type_
+        self.text = text
+        self.name = name
+        self.input = input_
+        self.id = id_ or "mock_tool_use_id"
+
+
+class _MockResponse:
+    def __init__(self, content, stop_reason="end_turn"):
+        self.content = content
+        self.stop_reason = stop_reason
+
+
+# Realistic support ticket bodies used across all steps — same inputs,
+# different prompting techniques, so results are actually comparable.
+SAMPLE_TICKETS = [
+    "My order #4471 hasn't arrived in 3 weeks. I've emailed twice with no response. This is unacceptable, I want a full refund immediately.",
+    "Hi, quick question — does the blue sweater run small? Thinking about sizing up.",
+    "the app crashed again while I was checking out. lost my whole cart. kind of annoying but whatever, I'll just redo it",
+    "URGENT: I was charged twice for order #8821. Please fix this today or I'm disputing the charge with my bank.",
+    "not sure if this is the right place but my package arrived damaged, box was crushed. not a huge deal, item still works, just wanted you to know",
+]
+
+
+def _mock_response(system, user_message, tools, tool_choice):
+    """
+    Mock behavior deliberately varies based on WHICH step's system prompt
+    is used, to simulate the real phenomenon each step demonstrates:
+    - vague prompt -> inconsistent, mood-based urgency judgments
+    - explicit criteria -> consistent judgments matching stated thresholds
+    - tool_use -> returns a proper tool_use block instead of text
+    """
+    text_lower = user_message.lower()
+
+    # Step 2 mock: vague + few-shot -> should approximate explicit's
+    # correctness on the two failure-mode tickets (3 and 4), since the
+    # examples directly target those patterns
+    if "example 1" in system.lower() and "example 2" in system.lower() and not tools:
+        if "urgent" in text_lower or "dispute" in text_lower or "today" in text_lower:
+            urgency = "high"
+        elif "3 weeks" in text_lower or "twice" in text_lower:
+            urgency = "high"
+        elif "damaged" in text_lower:
+            urgency = "low"  # matches Example 1's pattern: real issue + customer downplays -> low
+        elif "crashed" in text_lower:
+            urgency = "low"  # corrected to match fixed Example 3: customer's non-blocking framing determines category, recurrence alone isn't a listed signal
+        else:
+            urgency = "low"
+        return _MockResponse([_MockContentBlock(
+            "text", text=f"Signals found based on the examples. Urgency: {urgency}"
+        )])
+
+    # Step 1 mock: vague "be conservative about urgency" prompt ->
+    # deliberately inconsistent, to simulate what actually happens with
+    # underspecified criteria (a real vague prompt against a real model
+    # doesn't literally randomize like this, but DOES produce inconsistent
+    # boundary judgments across similar-but-not-identical inputs, which is
+    # what this simulates for teaching purposes without needing dozens of
+    # live API calls to observe empirically)
+    if "conservative" in system.lower() and "urgency" in system.lower() and not tools:
+        if "damaged" in text_lower and "not a huge deal" in text_lower:
+            # Ambiguous case — mock simulates the real inconsistency risk
+            urgency = random.choice(["low", "medium"])
+        elif "urgent" in text_lower or "dispute" in text_lower:
+            urgency = "high"
+        elif "3 weeks" in text_lower or "unacceptable" in text_lower:
+            urgency = random.choice(["medium", "high"])  # the actual boundary case
+        elif "crashed" in text_lower and "whatever" in text_lower:
+            urgency = random.choice(["low", "medium"])  # another real boundary case
+        else:
+            urgency = "low"
+        return _MockResponse([_MockContentBlock("text", text=f"Urgency: {urgency}")])
+
+    # Step 2 mock: explicit criteria -> consistent, rule-based
+    if "threshold" in system.lower() and not tools:
+        if "urgent" in text_lower or "dispute" in text_lower or "today" in text_lower:
+            urgency = "high"
+        elif "3 weeks" in text_lower or "twice" in text_lower:
+            urgency = "high"  # explicit rule: unresolved + repeated contact = high
+        elif "damaged" in text_lower:
+            urgency = "medium"  # explicit rule: product issue, no financial/repeated-contact signal = medium
+        elif "crashed" in text_lower:
+            urgency = "medium"  # explicit rule: functional bug = medium regardless of tone
+        else:
+            urgency = "low"
+        return _MockResponse([_MockContentBlock("text", text=f"Urgency: {urgency}")])
+
+    # tool_use mock (steps 3+)
+    if tools:
+        tool_name = tools[0]["name"]
+        if "damaged" in text_lower:
+            mock_input = {
+                "customer_sentiment": "mildly_negative",
+                "issue_category": "product_damage",
+                "urgency": "medium",
+                "refund_requested": None,
+                "requires_escalation": False,
+            }
+        elif "urgent" in text_lower or "dispute" in text_lower:
+            mock_input = {
+                "customer_sentiment": "very_negative",
+                "issue_category": "billing_error",
+                "urgency": "high",
+                "refund_requested": True,
+                "requires_escalation": True,
+            }
+        elif "sizing" in text_lower or "run small" in text_lower:
+            mock_input = {
+                "customer_sentiment": "neutral",
+                "issue_category": "product_question",
+                "urgency": "low",
+                "refund_requested": None,
+                "requires_escalation": False,
+            }
+        else:
+            mock_input = {
+                "customer_sentiment": "negative",
+                "issue_category": "shipping_delay",
+                "urgency": "high",
+                "refund_requested": True,
+                "requires_escalation": False,
+            }
+        return _MockResponse(
+            [_MockContentBlock("tool_use", name=tool_name, input_=mock_input)],
+            stop_reason="tool_use",
+        )
+
+    return _MockResponse([_MockContentBlock("text", text="[mock] unhandled case")])
